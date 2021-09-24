@@ -6,7 +6,6 @@ library(progress)
 library(pbapply)
 library(parallel)
 
-useDIANN <- F
 if (!require("diann")){
   if(!require("devtools")){
     install.packages("devtools")
@@ -22,6 +21,15 @@ source("doMaxLFQ.R")
 args <- commandArgs(trailingOnly = T)
 
 if (length(args) == 0){
+  message(
+    "Usage: Rscript --vanilla parallelMaxLFQ.R
+    <path to evidence/peptides.txt>
+    <path to proteinGroups.txt, default:./proteinGroups.txt>
+    <path for output, default: ./output.txt>
+    <serial/parallel, default: serial>
+    <nBatches default: 1> <nWorkers, default: 1>
+    <useDIANN, default: FALSE>
+    ")
   stop("Require path of input evidence.txt/peptides.txt at least")
 }
 
@@ -55,8 +63,16 @@ if (args[4] == "parallel"){
   }
 }
 
+useDIANN <- F
+if (length(args) < 7){
+  args[7] <- "FALSE"
+}
+useDIANN <- as.logical(args[7])
+
 #Read evidence.txt input
 data <- fread(args[1], sep = "\t")
+
+inputIsEvidenceFile <- "Raw file" %in% colnames(data)
 
 proteinGroups <- fread(args[2], sep = "\t")
 
@@ -66,7 +82,7 @@ data <- data[!grepl(";", `Protein group IDs`),]
 
 discardUnmodifiedCounterparts <- T
 #Discard unmodified counterparts?
-if (discardUnmodifiedCounterparts){
+if (inputIsEvidenceFile & discardUnmodifiedCounterparts){
   tmp <- unique(data[, c("Sequence", "Modifications", "Modified sequence")])
   tmp <- tmp[, {
     keep <- c(T)
@@ -86,6 +102,13 @@ if (discardUnmodifiedCounterparts){
   data <- data[`Modified sequence` %in% tmp$`Modified sequence`,]
 }
 
+if(!inputIsEvidenceFile){
+  valueCols <- colnames(data)[grepl("^Intensity ", colnames(data))]
+  #Need to melt peptides file into long format
+  data <- melt(data, id.vars = c("Sequence", "Protein group IDs"), measure.vars = valueCols, value.name = "Intensity", variable.name = "Experiment")
+  data[,Experiment := stringr::str_replace(Experiment, "Intensity ", "")]
+}
+
 sampleTable <- unique(data[, c("Experiment")])
 sampleTable[, sampleID :=seq(1,.N)]
 data <- merge(data, sampleTable, by = "Experiment")
@@ -95,10 +118,17 @@ groupTable[, groupID := seq(1,.N)]
 data <- merge(data, groupTable, by = "Protein group IDs")
 
 
-data[, feature := paste0(`Modified sequence`, `Charge`)]
-featureTable <- unique(data[, c("Modified sequence", "Charge", "feature")])
-featureTable[, featureID := seq(1,.N)]
-data <- merge(data, featureTable, by = c("Modified sequence", "Charge", "feature"))
+if (inputIsEvidenceFile){
+  data[, feature := paste0(`Modified sequence`, `Charge`)]
+  featureTable <- unique(data[, c("Modified sequence", "Charge", "feature")])
+  featureTable[, featureID := seq(1,.N)]
+  data <- merge(data, featureTable, by = c("Modified sequence", "Charge", "feature"))
+} else {
+  data[, feature := Sequence]
+  featureTable <- unique(data[, c("feature")])
+  featureTable[, featureID := seq(1,.N)]
+  data <- merge(data, featureTable, by = c("feature"))
+}
 
 dataForProcessing <- data[, c("sampleID", "groupID", "featureID", "Intensity")]
 
@@ -208,6 +238,8 @@ output[, groupID := NULL]
 setnames(output, c("Protein group IDs"), c("id"))
 output[, id := strtoi(id)]
 output[, `LFQ Intensity` := as.double(`LFQ Intensity`)]
+output[, `LFQ Intensity` := ifelse(is.na(`LFQ Intensity`), 0, `LFQ Intensity`)]
+output[, `Experiment` := paste0("LFQ Intensity ", Experiment)]
 
 output <- dcast(output, value.var = "LFQ Intensity", id ~ Experiment)
 output <- merge(proteinGroups[, c("id", "Protein IDs", "Majority protein IDs", "Protein names", "Gene names", "Fasta headers")], output, by= "id")
