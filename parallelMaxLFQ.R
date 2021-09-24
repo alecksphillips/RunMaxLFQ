@@ -1,12 +1,12 @@
 #!Rscript --vanilla
 library(data.table)
+library(bit64)
 library(fst)
 library(progress)
 library(pbapply)
 library(parallel)
 
-source("processBatch.R")
-
+useDIANN <- F
 if (!require("diann")){
   if(!require("devtools")){
     install.packages("devtools")
@@ -15,6 +15,9 @@ if (!require("diann")){
   install_github("https://github.com/vdemichev/diann-rpackage")
 }
 library(diann)
+library(iq)
+
+source("doMaxLFQ.R")
 
 args <- commandArgs(trailingOnly = T)
 
@@ -104,35 +107,14 @@ output <- data.table()
 if (doSerial){
   output <- rbindlist(lapply(seq(1,max(groupTable$groupID)), function(i){
     x <- dataForProcessing[groupID == i,]
-
-    outputTable <- tryCatch({
-      processedData <- diann::diann_maxlfq(
-        x,
-        sample.header = "sampleID",
-        group.header = "groupID",
-        id.header = "featureID",
-        quantity.header = "Intensity"
-      )
-      outputTable <- as.data.table(
-        reshape2::melt(
-          processedData,
-          value.name = "LFQ Intensity"
-        )
-      )
-      setnames(outputTable, c("Var1","Var2"), c("groupID","sampleID"))
-      return(outputTable)
-
-    }, error = function(cond){
-      outputTable <- x[, c("groupID","sampleID", "Intensity")]
-      setnames(outputTable, c("Intensity"), c("LFQ Intensity"))
-      return(outputTable)
-    })
-
-    outputTable[, c("groupID", "sampleID", "LFQ Intensity")]
+    doMaxLFQ(x, useDIANN)
   }))
 
 
 } else {
+
+  source("processBatch.R")
+
   #Output from batches ends up being 1000s of files, put in a separate directory
   workingDirectory <- tempdir()
 
@@ -180,21 +162,25 @@ if (doSerial){
       library(data.table)
       library(fst)
       library(diann)
+      library(iq)
+      library(bit64)
     })
 
     #Export nPatients and nBatches to workers
     clusterExport(cl, "nGroups")
     clusterExport(cl, "nBatches")
+    clusterExport(cl, "useDIANN")
 
     #Export function to workers
+    clusterExport(cl, "doMaxLFQ")
     clusterExport(cl, "processBatch")
 
     #List of batches
     x.list <- sapply(seq(1,nBatches), list)
 
     #Process list of batches on workers
-    #pblapply(x.list, processBatch, cl = cl)
-    lapply(x.list, processBatch)
+    pblapply(x.list, processBatch, cl = cl)
+    #lapply(x.list, processBatch)
 
     #parLapply(cl = cl, x.list, processBatch)
     parallel::stopCluster(cl)
@@ -202,7 +188,7 @@ if (doSerial){
 
   message(paste0("Elapsed: ", as.numeric(t[3]), "s"))
 
-  file.remove("dataindex.fst")
+  #file.remove("dataindex.fst")
 
   #Combine outputs from batches
   output <- rbindlist(lapply(seq(1,nBatches), function(i){

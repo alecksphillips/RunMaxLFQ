@@ -23,40 +23,7 @@ processBatch <- function(batchNumber) {
       as.data.table = T
     )
 
-    #Default return
-    outputTable <- dt[, c("groupID","sampleID", "Intensity")]
-    setnames(outputTable, c("Intensity"), c("LFQ Intensity"))
-    maxLFQOutput <- NA
-    if (sum(!is.na(dt$Intensity)) > 1) {
-      maxLFQOutput <- tryCatch({
-        processedData <- diann::diann_maxlfq(
-          dt[!is.na(Intensity),],
-          sample.header = "sampleID",
-          group.header = "groupID",
-          id.header = "featureID",
-          quantity.header = "Intensity"
-        )
-        outputTable <- data.table(
-          groupID = i,
-          sampleID = colnames(processedData),
-          `LFQ Intensity` = as.numeric(t(processedData))
-        )
-        return(outputTable)
-      }, error = function(cond){
-        message("Something went wrong:")
-        message(cond)
-        message("Returning base intensities as default")
-        return(NA)
-      })
-    } else {
-      #browser()
-    }
-    if (!is.na(maxLFQOutput)){
-      outputTable <- maxLFQOutput
-    }
-
-    outputTable
-
+    doMaxLFQ(dt, useDIANN)
   })
 
 
