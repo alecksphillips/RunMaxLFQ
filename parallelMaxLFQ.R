@@ -20,9 +20,8 @@ source("doMaxLFQ.R")
 
 args <- commandArgs(trailingOnly = T)
 
-if (length(args) == 0){
-  message(
-    "Usage: Rscript --vanilla parallelMaxLFQ.R
+message(
+  "Usage: Rscript --vanilla parallelMaxLFQ.R
     <path to evidence/peptides.txt>
     <path to proteinGroups.txt, default:./proteinGroups.txt>
     <path for output, default: ./output.txt>
@@ -30,6 +29,8 @@ if (length(args) == 0){
     <nBatches default: 1> <nWorkers, default: 1>
     <useDIANN, default: FALSE>
     ")
+
+if (length(args) == 0){
   stop("Require path of input evidence.txt/peptides.txt at least")
 }
 
