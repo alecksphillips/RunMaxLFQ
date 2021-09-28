@@ -38,6 +38,8 @@ doMaxLFQ <- function(x, useDIANN = F){
       tmp[, Intensity := as.double(Intensity)]
       tmp <- dcast(tmp, featureID ~ sampleID, value.var = "Intensity", fun.aggregate = sum)
       sampleIDs <- colnames(tmp)[2:ncol(tmp)]
+
+      #iq maxlfq takes matrix of values as input
       tmp <- as.matrix(tmp[,2:ncol(tmp)])
 
       processedData <- iq::maxLFQ(

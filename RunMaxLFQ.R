@@ -5,23 +5,23 @@ library(fst)
 library(progress)
 library(pbapply)
 library(parallel)
+library(iq)
 
 if (!require("diann")){
   if(!require("devtools")){
     install.packages("devtools")
+    library(devtools)
   }
-  library(devtools)
   install_github("https://github.com/vdemichev/diann-rpackage")
+  library(diann)
 }
-library(diann)
-library(iq)
 
 source("doMaxLFQ.R")
 
 args <- commandArgs(trailingOnly = T)
 
 message(
-  "Usage: Rscript --vanilla parallelMaxLFQ.R
+  "Usage: Rscript --vanilla RunMaxLFQ.R
     <path to evidence/peptides.txt>
     <path to proteinGroups.txt, default:./proteinGroups.txt>
     <path for output, default: ./output.txt>
@@ -105,8 +105,16 @@ if (inputIsEvidenceFile & discardUnmodifiedCounterparts){
 
 if(!inputIsEvidenceFile){
   valueCols <- colnames(data)[grepl("^Intensity ", colnames(data))]
+
   #Need to melt peptides file into long format
-  data <- melt(data, id.vars = c("Sequence", "Protein group IDs"), measure.vars = valueCols, value.name = "Intensity", variable.name = "Experiment")
+  data <- melt(
+    data,
+    id.vars = c("Sequence", "Protein group IDs"),
+    measure.vars = valueCols,
+    value.name = "Intensity",
+    variable.name = "Experiment"
+  )
+
   data[,Experiment := stringr::str_replace(Experiment, "Intensity ", "")]
 }
 
@@ -160,7 +168,7 @@ if (doSerial){
   if(file.exists(datafilepath)){
     file.remove(datafilepath)
   }
-  write_fst(dataForProcessing, datafilepath)
+  fst::write_fst(dataForProcessing, datafilepath)
 
   #Calculate indexes of where start and end of data is for each protein group
   #in the table for random access with fst
@@ -174,7 +182,7 @@ if (doSerial){
   if (file.exists("dataindex.fst")){
     file.remove("dataindex.fst")
   }
-  write_fst(dataindex, file.path("dataindex.fst"))
+  fst::write_fst(dataindex, file.path("dataindex.fst"))
 
   nGroups <- nrow(dataindex)
 
@@ -210,20 +218,18 @@ if (doSerial){
     x.list <- sapply(seq(1,nBatches), list)
 
     #Process list of batches on workers
-    pblapply(x.list, processBatch, cl = cl)
-    #lapply(x.list, processBatch)
+    pbapply::pblapply(x.list, processBatch, cl = cl)
 
-    #parLapply(cl = cl, x.list, processBatch)
     parallel::stopCluster(cl)
   })
 
   message(paste0("Elapsed: ", as.numeric(t[3]), "s"))
 
-  #file.remove("dataindex.fst")
+  file.remove("dataindex.fst")
 
   #Combine outputs from batches
-  output <- rbindlist(lapply(seq(1,nBatches), function(i){
-    tmp <- read_fst(file.path(workingDirectory,paste0(i,".fst")), as.data.table = T)
+  output <- data.table::rbindlist(lapply(seq(1,nBatches), function(i){
+    tmp <- fst::read_fst(file.path(workingDirectory,paste0(i,".fst")), as.data.table = T)
     tmp
   }))
 
